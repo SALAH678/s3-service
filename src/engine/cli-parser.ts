@@ -31,7 +31,9 @@ export function executeCliCommand(input: string, actions: CliActions): CliResult
     if (command === 'mb') {
       const uri = parseS3Uri(args[0] ?? '')
       if (!uri) return { output: 'usage: aws s3 mb s3://bucket-name', success: false }
-      const error = actions.createBucket(uri.bucket)
+      const regionIndex = args.findIndex((arg) => arg === '--region')
+      const region = regionIndex >= 0 ? args[regionIndex + 1] : undefined
+      const error = actions.createBucket(uri.bucket, region)
       return error
         ? { output: `make_bucket failed: ${error}`, success: false }
         : { output: `make_bucket: ${args[0]}`, success: true }
@@ -49,7 +51,7 @@ export function executeCliCommand(input: string, actions: CliActions): CliResult
       const bucket = actions.buckets.find((item) => item.name === uri.bucket)
       if (!bucket) return { output: `NoSuchBucket: ${uri.bucket}`, success: false }
       const prefix = uri.key
-      const objects = bucket.objects.filter((object) => !prefix || object.key.startsWith(prefix))
+      const objects = bucket.objects.filter((object) => !object.deleteMarker && (!prefix || object.key.startsWith(prefix)))
       if (!objects.length) return { output: 'No objects found.', success: true }
       return {
         output: objects.map((object) =>
@@ -80,9 +82,12 @@ export function executeCliCommand(input: string, actions: CliActions): CliResult
       }
 
       if (sourceUri && destinationUri) {
+        if (sourceUri.bucket === destinationUri.bucket && sourceUri.key === destinationUri.key) {
+          return { output: `${command}: source and destination are the same object`, success: false }
+        }
         const source = actions.buckets.find((item) => item.name === sourceUri.bucket)
         const object = source?.objects.find((item) => item.key === sourceUri.key)
-        if (!object) return { output: `NoSuchKey: ${sourceUri.key}`, success: false }
+        if (!object || object.deleteMarker) return { output: `NoSuchKey: ${sourceUri.key}`, success: false }
         const destination = actions.buckets.find((item) => item.name === destinationUri.bucket)
         if (!destination) return { output: `NoSuchBucket: ${destinationUri.bucket}`, success: false }
         const key = destinationUri.key.endsWith('/') || !destinationUri.key
@@ -174,10 +179,11 @@ export function executeCliCommand(input: string, actions: CliActions): CliResult
       if (!bucketName) return { output: 'usage: aws s3api put-bucket-lifecycle-configuration --bucket bucket --lifecycle-configuration ...', success: false }
       if (!actions.buckets.some((bucket) => bucket.name === bucketName)) return { output: `NoSuchBucket: ${bucketName}`, success: false }
       const text = args.join(' ')
-      const daysMatch = /(?:Days=|Days":)(\d+)/i.exec(text)
+      const daysMatch = /Days"?\s*[:=]\s*(\d+)/i.exec(text)
+      const prefixMatch = /Prefix"?\s*[:=]\s*"?([^",}\s]*)/i.exec(text)
       const glacier = /GLACIER/i.test(text)
       actions.setLifecycleRule?.(bucketName, {
-        prefix: '',
+        prefix: prefixMatch?.[1] ?? '',
         transitionAfterDays: daysMatch ? Number(daysMatch[1]) : 30,
         storageClass: glacier ? 'GLACIER' : 'STANDARD_IA',
       })

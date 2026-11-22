@@ -101,6 +101,13 @@ export type Bucket = {
   inventoryEnabled: boolean
   simulatedDay: number
   metrics: BucketMetrics
+  accessPoints: Array<{
+    id: string
+    name: string
+    bucketName: string
+    network: 'Internet' | 'VPC'
+    status: 'Active'
+  }>
 }
 
 type Activity = {
@@ -136,6 +143,9 @@ type SimulatorState = {
   restoreObjectVersion: (bucketName: string, key: string, versionId: string) => Promise<void>
   deleteObjectVersion: (bucketName: string, key: string, versionId: string) => Promise<void>
   recordGetRequest: (bucketName: string) => void
+  createAccessPoint: (bucketName: string, name: string, network: 'Internet' | 'VPC') => void
+  deleteAccessPoint: (bucketName: string, accessPointId: string) => void
+  setAccessPoints: (bucketName: string, accessPoints: Bucket['accessPoints']) => void
   reset: () => void
   logActivity: (action: string, resource: string, status?: Activity['status']) => void
 }
@@ -219,6 +229,7 @@ export function normalizeBucket(input: Partial<Bucket> & { name: string }): Buck
     inventoryName: input.inventoryName ?? '',
     inventoryEnabled: input.inventoryEnabled ?? false,
     simulatedDay: input.simulatedDay ?? 0,
+    accessPoints: Array.isArray(input.accessPoints) ? input.accessPoints : [],
     metrics: {
       getRequests: input.metrics?.getRequests ?? 0,
       putRequests: input.metrics?.putRequests ?? 0,
@@ -249,6 +260,7 @@ const seededBuckets: Bucket[] = [
     inventoryName: '',
     inventoryEnabled: false,
     simulatedDay: 0,
+    accessPoints: [],
     metrics: emptyMetrics(),
     objects: [
       { key: 'images/event.jpg', size: 284000, type: 'image/jpeg', storageClass: 'STANDARD', createdAt: '2026-11-20T14:12:00.000Z', etag: '"4f5a2c8a76e8d41e6c01f4b3dd90a101"', parts: 1, versionId: 'null', versions: [], metadata: { 'x-amz-meta-event': 'cloud-club' }, tags: { Category: 'Images' } },
@@ -277,6 +289,7 @@ const seededBuckets: Bucket[] = [
     inventoryName: '',
     inventoryEnabled: false,
     simulatedDay: 0,
+    accessPoints: [],
     metrics: emptyMetrics(),
     objects: [
       { key: 'archives/2026.zip', size: 18500000, type: 'application/zip', storageClass: 'GLACIER', createdAt: '2026-10-23T11:00:00.000Z', etag: '"1a7ce94de5b2ac42fe4c69c3a0d83b2e"', parts: 2, versionId: 'null', versions: [], metadata: {}, tags: {} },
@@ -316,6 +329,7 @@ export const useS3SimulatorStore = create<SimulatorState>()(
           inventoryName: '',
           inventoryEnabled: false,
           simulatedDay: 0,
+          accessPoints: [],
           metrics: emptyMetrics(),
         }
         set((state) => ({ buckets: [...state.buckets, bucket] }))
@@ -350,7 +364,8 @@ export const useS3SimulatorStore = create<SimulatorState>()(
         const versioningEnabled = bucket.versioning === 'Enabled'
         const versionId = versioningEnabled ? nextVersionId() : 'null'
         const versions = existing?.versions ? [...existing.versions] : []
-        if (existing && versioningEnabled && !existing.isFolder) {
+        const preserveExisting = existing && !existing.isFolder && (versioningEnabled || existing.versionId !== 'null')
+        if (existing && preserveExisting) {
           if (!existing.deleteMarker) {
             const currentBlob = await loadObjectBlob(bucketName, normalizedKey)
             if (currentBlob) {
@@ -431,6 +446,9 @@ export const useS3SimulatorStore = create<SimulatorState>()(
               : item),
           }))
           await deleteObjectBlob(bucketName, key)
+          await Promise.all((object.versions ?? []).map((version) =>
+            deleteObjectVersionBlob(bucketName, key, version.versionId),
+          ))
           await deleteAllObjectVersionBlobs(bucketName, key)
         }
         get().logActivity('DeleteObject', `arn:aws:s3:::${bucketName}/${key}`, 'Success')
@@ -495,25 +513,58 @@ export const useS3SimulatorStore = create<SimulatorState>()(
         }))
         get().logActivity('PutReplicationConfiguration', `arn:aws:s3:::${name}`, 'Success')
       },
+      createAccessPoint: (bucketName: string, name: string, network: 'Internet' | 'VPC') => {
+        const bucket = get().buckets.find((item) => item.name === bucketName)
+        const accessPointName = name.trim()
+        if (!bucket || !accessPointName || bucket.accessPoints.some((ap) => ap.name === accessPointName)) return
+        const accessPoint = {
+          id: `ap-${crypto.randomUUID().slice(0, 8)}`,
+          name: accessPointName,
+          bucketName,
+          network,
+          status: 'Active' as const,
+        }
+        set((state) => ({
+          buckets: state.buckets.map((item) => item.name === bucketName
+            ? { ...item, accessPoints: [...item.accessPoints, accessPoint] }
+            : item),
+        }))
+        get().logActivity('CreateAccessPoint', `arn:aws:s3:::${bucketName}/accesspoint/${name}`, 'Success')
+      },
+      deleteAccessPoint: (bucketName: string, accessPointId: string) => {
+        set((state) => ({
+          buckets: state.buckets.map((item) => item.name === bucketName
+            ? { ...item, accessPoints: item.accessPoints.filter((ap) => ap.id !== accessPointId) }
+            : item),
+        }))
+        get().logActivity('DeleteAccessPoint', `arn:aws:s3:::${bucketName}/accesspoint/${accessPointId}`, 'Success')
+      },
+      setAccessPoints: (bucketName: string, accessPoints: Bucket['accessPoints']) => {
+        set((state) => ({
+          buckets: state.buckets.map((item) => item.name === bucketName
+            ? { ...item, accessPoints }
+            : item),
+        }))
+        get().logActivity('PutAccessPoint', `arn:aws:s3:::${bucketName}`, 'Success')
+      },
       runReplication: async (name) => {
         const source = get().buckets.find((bucket) => bucket.name === name)
         if (!source) return
         const enabledRules = source.replicationRules.filter((rule) => rule.status === 'Enabled')
         if (!enabledRules.length) return
-        const destinationKeys = new Map<string, Set<string>>()
         const destinationCopies = new Map<string, S3Object[]>()
+        const copiedKeys = new Map<string, Set<string>>()
         const replicatedRuleIds = new Set<string>()
         for (const rule of enabledRules) {
           const destination = get().buckets.find((bucket) => bucket.name === rule.destination)
-          if (!destination) continue
+          if (!destination || destination.name === source.name) continue
           replicatedRuleIds.add(rule.id)
-          const existingKeys = destinationKeys.get(destination.name)
-            ?? new Set(destination.objects.map((object) => object.key))
+          const existingCopies = copiedKeys.get(destination.name) ?? new Set<string>()
           const copies = destinationCopies.get(destination.name) ?? []
           for (const object of source.objects) {
             if (object.isFolder || object.deleteMarker) continue
             if (rule.prefix && !object.key.startsWith(rule.prefix)) continue
-            if (existingKeys.has(object.key)) continue
+            if (existingCopies.has(object.key)) continue
             const blob = await loadObjectBlob(source.name, object.key)
             await saveObjectBlob(
               destination.name,
@@ -526,16 +577,27 @@ export const useS3SimulatorStore = create<SimulatorState>()(
               versions: [],
               deleteMarker: false,
             })
-            existingKeys.add(object.key)
+            existingCopies.add(object.key)
           }
-          destinationKeys.set(destination.name, existingKeys)
+          copiedKeys.set(destination.name, existingCopies)
           destinationCopies.set(destination.name, copies)
+        }
+        if (!replicatedRuleIds.size) {
+          get().logActivity('ReplicateObjects', `arn:aws:s3:::${name}`, 'Warning')
+          return
         }
         set((state) => ({
           buckets: state.buckets.map((bucket) => {
             const copies = destinationCopies.get(bucket.name)
+            const keys = copiedKeys.get(bucket.name)
             const updated = copies?.length
-              ? { ...bucket, objects: [...bucket.objects, ...copies] }
+              ? {
+                  ...bucket,
+                  objects: [
+                    ...bucket.objects.filter((object) => !keys?.has(object.key)),
+                    ...copies,
+                  ],
+                }
               : bucket
             if (bucket.name !== name) return updated
             return {
@@ -559,7 +621,9 @@ export const useS3SimulatorStore = create<SimulatorState>()(
             (!rule.prefix || object.key.startsWith(rule.prefix)) && nextDay >= rule.transitionDays,
           )
           if (!matchingRules.length) return object
-          const targetClass = matchingRules[matchingRules.length - 1].targetClass
+          const targetClass = matchingRules.reduce((latest, rule) =>
+            rule.transitionDays > latest.transitionDays ? rule : latest,
+          ).targetClass
           return object.storageClass === targetClass ? object : { ...object, storageClass: targetClass }
         })
         set((state) => ({
@@ -642,6 +706,9 @@ export const useS3SimulatorStore = create<SimulatorState>()(
                 : bucket),
             }))
             await deleteObjectBlob(bucketName, key)
+            await Promise.all(remaining.map((version) =>
+              deleteObjectVersionBlob(bucketName, key, version.versionId),
+            ))
             await deleteAllObjectVersionBlobs(bucketName, key)
           }
         } else {
@@ -701,12 +768,17 @@ export const useS3SimulatorStore = create<SimulatorState>()(
     }),
     {
       name: 's3-simulator-state',
-      version: 1,
+      version: 2,
       migrate: (persistedState) => {
         const persisted = persistedState as Partial<SimulatorState> | undefined
+        const buckets = Array.isArray(persisted?.buckets)
+          ? persisted.buckets
+            .filter((bucket): bucket is Bucket => Boolean(bucket && typeof bucket.name === 'string'))
+            .map((bucket) => normalizeBucket(bucket))
+          : seededBuckets.map((bucket) => normalizeBucket(bucket))
         return {
           ...persisted,
-          buckets: (persisted?.buckets ?? []).map((bucket) => normalizeBucket(bucket)),
+          buckets,
         } as SimulatorState
       },
     },

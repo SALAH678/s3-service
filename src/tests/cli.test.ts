@@ -6,8 +6,8 @@ function createActions(initial: Bucket[] = []) {
   const buckets = [...initial]
   return {
     buckets,
-    createBucket: vi.fn((name: string) => {
-      buckets.push({ name, region: 'US East (N. Virginia)', createdAt: new Date().toISOString(), objects: [] })
+    createBucket: vi.fn((name: string, region?: string) => {
+      buckets.push({ name, region: region ?? 'US East (N. Virginia)', createdAt: new Date().toISOString(), objects: [] })
       return null
     }),
     deleteBucket: undefined as ((name: string) => string | null) | undefined,
@@ -24,6 +24,30 @@ describe('fake AWS CLI', () => {
     const result = executeCliCommand('aws s3 mb s3://cli-lab', actions)
     expect(result.success).toBe(true)
     expect(result.output).toContain('cli-lab')
+  })
+
+  it('passes the requested region to mb', () => {
+    const actions = createActions()
+    const result = executeCliCommand('aws s3 mb s3://regional-lab --region eu-west-1', actions)
+    expect(result.success).toBe(true)
+    expect(actions.createBucket).toHaveBeenCalledWith('regional-lab', 'eu-west-1')
+  })
+
+  it('hides delete markers from ls', () => {
+    const actions = createActions([
+      {
+        name: 'cli-lab',
+        region: 'US East',
+        createdAt: '2026-11-20T00:00:00Z',
+        objects: [
+          { key: 'visible.txt', size: 1, type: 'text/plain', createdAt: '2026-11-20T00:00:00Z', parts: 1, versionId: 'v1' },
+          { key: 'deleted.txt', size: 1, type: 'text/plain', createdAt: '2026-11-20T00:00:00Z', parts: 1, versionId: 'v2', deleteMarker: true },
+        ],
+      },
+    ])
+    const result = executeCliCommand('aws s3 ls s3://cli-lab', actions)
+    expect(result.output).toContain('visible.txt')
+    expect(result.output).not.toContain('deleted.txt')
   })
 
   it('lists buckets', () => {
@@ -126,5 +150,33 @@ describe('fake AWS CLI', () => {
       'cli-lab',
       expect.objectContaining({ key: 'uploads/test.txt' }),
     )
+  })
+
+  it('rejects copying an object onto itself', () => {
+    const actions = createActions([
+      {
+        name: 'cli-lab',
+        region: 'US East',
+        createdAt: '2026-11-20T00:00:00Z',
+        objects: [{ key: 'notes.txt', size: 1, type: 'text/plain', createdAt: '2026-11-20T00:00:00Z', parts: 1 }],
+      },
+    ])
+    const result = executeCliCommand('aws s3 cp s3://cli-lab/notes.txt s3://cli-lab/notes.txt', actions)
+    expect(result.success).toBe(false)
+    expect(actions.uploadObject).not.toHaveBeenCalled()
+  })
+
+  it('parses lifecycle prefix and transition days', () => {
+    const actions = createActions([
+      { name: 'cli-lab', region: 'US East', createdAt: '2026-11-20T00:00:00Z', objects: [] },
+    ])
+    const command = 'aws s3api put-bucket-lifecycle-configuration --bucket cli-lab --lifecycle-configuration {"Rules":[{"Filter":{"Prefix":"images/"},"Transition":{"Days":45,"StorageClass":"GLACIER"}}]}'
+    const result = executeCliCommand(command, actions)
+    expect(result.success).toBe(true)
+    expect(actions.setLifecycleRule).toHaveBeenCalledWith('cli-lab', {
+      prefix: 'images/',
+      transitionAfterDays: 45,
+      storageClass: 'GLACIER',
+    })
   })
 })

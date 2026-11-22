@@ -111,15 +111,23 @@ function LandingPage() {
 }
 
 function ConsoleSidebar() {
+  const navigate = useNavigate()
+
   return (
     <aside className="console-sidebar">
       <div className="sidebar-service"><CloudCog size={20} /><strong>Amazon S3</strong></div>
       <nav>
         <NavLink to="/console/buckets" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><Box size={16} />Buckets</NavLink>
-        <button className="side-link"><ShieldCheck size={16} />Access Grants</button>
-        <button className="side-link"><LayoutDashboard size={16} />Access Points</button>
-        <button className="side-link"><CloudCog size={16} />Object Lambda access points</button>
-        <button className="side-link"><Grid3X3 size={16} />Multi-Region Access Points</button>
+        <button className="side-link" onClick={() => navigate('/console/access-points')}>
+          <ShieldCheck size={16} />Access Grants
+        </button>
+        <NavLink to="/console/access-points" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><LayoutDashboard size={16} />Access Points</NavLink>
+        <button className="side-link" onClick={() => navigate('/console/buckets')}>
+          <CloudCog size={16} />Object Lambda access points
+        </button>
+        <button className="side-link" onClick={() => navigate('/console/buckets')}>
+          <Grid3X3 size={16} />Multi-Region Access Points
+        </button>
         <div className="side-divider" />
         <NavLink to="/console/activity" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><Bell size={16} />Activity / CloudTrail</NavLink>
         <NavLink to="/console/cli" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><Settings size={16} />AWS CLI</NavLink>
@@ -127,9 +135,15 @@ function ConsoleSidebar() {
         <NavLink to="/console/iam" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><ShieldCheck size={16} />IAM Access Simulator</NavLink>
         <NavLink to="/console/tutorials" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><HelpCircle size={16} />Tutorials</NavLink>
         <NavLink to="/console/state" className={({ isActive }) => isActive ? 'side-link active' : 'side-link'}><Settings size={16} />Export / Import</NavLink>
-        <button className="side-link"><Settings size={16} />Block Public Access settings</button>
-        <button className="side-link"><LayoutDashboard size={16} />Storage Lens</button>
-        <button className="side-link"><Folder size={16} />Batch Operations</button>
+        <button className="side-link" onClick={() => navigate('/console/buckets')}>
+          <Settings size={16} />Block Public Access settings
+        </button>
+        <button className="side-link" onClick={() => navigate('/console/buckets')}>
+          <LayoutDashboard size={16} />Storage Lens
+        </button>
+        <button className="side-link" onClick={() => navigate('/console/buckets')}>
+          <Folder size={16} />Batch Operations
+        </button>
       </nav>
     </aside>
   )
@@ -153,7 +167,18 @@ function BucketsPage() {
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
-  const filtered = buckets.filter((bucket) => bucket.name.includes(search.toLowerCase()))
+  const filtered = buckets.filter((bucket) => bucket.name.includes(search.trim().toLowerCase()))
+
+  const closeCreate = () => {
+    setCreateOpen(false)
+    setName('')
+    setError('')
+    setStep(1)
+    setVersioning(false)
+    setBlockPublicAccess(true)
+    setOwnership('Bucket owner enforced')
+    setEncryption('SSE-S3')
+  }
 
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -162,10 +187,7 @@ function BucketsPage() {
       setError(result)
       return
     }
-    setCreateOpen(false)
-    setName('')
-    setError('')
-    setStep(1)
+    closeCreate()
   }
 
   const deleteSelected = () => {
@@ -202,16 +224,16 @@ function BucketsPage() {
         <button className={tab === 'table' ? 'active' : ''} onClick={() => setTab('table')}>Table buckets</button>
       </div>
       {tab !== 'general' ? (
-        <div className="flashbar info"><strong>{tab === 'directory' ? 'Directory buckets' : 'Table buckets'} information</strong><span>Basic feature view is ready for the next implementation phase.</span></div>
+        <div className="flashbar info"><strong>{tab === 'directory' ? 'Directory buckets' : 'Table buckets'}</strong><span>{tab === 'directory' ? 'Directory buckets are purpose-built for low-latency single Availability Zone workloads.' : 'Table buckets are designed for analytics workloads with S3 Tables integration.'}</span></div>
       ) : null}
       <div className="page-title">
         <div><h1>{tab === 'general' ? 'General purpose buckets' : tab === 'directory' ? 'Directory buckets' : 'Table buckets'}</h1><p>Store and retrieve objects in buckets.</p></div>
-        {tab === 'general' && <button className="orange-button" onClick={() => setCreateOpen(true)}><Plus size={16} />Create bucket</button>}
+        {(tab === 'general') && <button className="orange-button" onClick={() => setCreateOpen(true)}><Plus size={16} />Create bucket</button>}
       </div>
-      {tab === 'general' && (
+      {(tab === 'general') && (
         <section className="console-card">
           <div className="table-toolbar">
-            <div className="resource-search"><Search size={15} /><input aria-label="Find buckets" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find buckets by name" /></div>
+            <div className="resource-search"><Search size={15} /><input aria-label="Find buckets" value={search} onChange={(event) => { setSearch(event.target.value); setSelected([]) }} placeholder="Find buckets by name" /></div>
             <div className="toolbar-actions">
               <button disabled={selected.length !== 1} onClick={() => selected[0] && void navigator.clipboard.writeText(`arn:aws:s3:::${selected[0]}`)}>Copy ARN</button>
               <button disabled={selected.length !== 1} onClick={emptySelected}>Empty</button>
@@ -223,12 +245,13 @@ function BucketsPage() {
           </div>
           {filtered.length ? (
             <table className="console-table">
-              <thead><tr><th><input type="checkbox" checked={selected.length === filtered.length} onChange={(event) => setSelected(event.target.checked ? filtered.map((bucket) => bucket.name) : [])} /></th><th>Name</th><th>Region</th><th>Access</th><th>Creation date</th></tr></thead>
+              <thead><tr><th><input type="checkbox" checked={filtered.length > 0 && filtered.every((bucket) => selected.includes(bucket.name))} onChange={(event) => setSelected(event.target.checked ? filtered.map((bucket) => bucket.name) : [])} /></th><th>Name</th><th>Type</th><th>Region</th><th>Access</th><th>Creation date</th></tr></thead>
               <tbody>
                 {filtered.map((bucket) => (
                   <tr key={bucket.name} className={selected.includes(bucket.name) ? 'selected' : ''}>
                     <td><input type="checkbox" checked={selected.includes(bucket.name)} onChange={(event) => setSelected((names) => event.target.checked ? [...names, bucket.name] : names.filter((name) => name !== bucket.name))} /></td>
                     <td><button className="link-button" onClick={() => navigate(`/console/buckets/${encodeURIComponent(bucket.name)}`)}>{bucket.name}</button></td>
+                    <td><span className="status-badge">General purpose</span></td>
                     <td>{regions.find(([value]) => value === bucket.region)?.[1] ?? bucket.region}</td>
                     <td><span className="status-badge">{bucket.access}</span></td>
                     <td>{new Date(bucket.createdAt).toLocaleString()}</td>
@@ -259,9 +282,9 @@ function BucketsPage() {
         </div>
       )}
       {createOpen && (
-        <div className="modal-backdrop" onMouseDown={() => setCreateOpen(false)}>
+        <div className="modal-backdrop" onMouseDown={closeCreate}>
           <form className="wizard" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="wizard-header"><div><span>Step {step} of 3</span><h2>Create bucket</h2></div><button type="button" onClick={() => setCreateOpen(false)}><X size={20} /></button></div>
+            <div className="wizard-header"><div><span>Step {step} of 3</span><h2>Create bucket</h2></div><button type="button" onClick={closeCreate}><X size={20} /></button></div>
             <div className="wizard-progress"><i className={step >= 1 ? 'active' : ''} /><i className={step >= 2 ? 'active' : ''} /><i className={step >= 3 ? 'active' : ''} /></div>
             {step === 1 && (
               <div className="wizard-body">
@@ -290,7 +313,8 @@ function BucketsPage() {
                 <div className="review-box"><strong>Review</strong><span>Bucket name: {name}</span><span>Region: {region}</span><span>Encryption: {encryption}</span><span>Versioning: {versioning ? 'Enabled' : 'Suspended'}</span></div>
               </div>
             )}
-            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={() => setCreateOpen(false)}>Cancel</button>{step > 1 && <button type="button" className="secondary-button" onClick={() => setStep(step - 1)}>Previous</button>}{step < 3 ? <button type="button" className="orange-button" onClick={() => step === 1 && !name ? setError('Bucket name is required.') : setStep(step + 1)}>Next</button> : <button type="submit" className="orange-button">Create bucket</button>}</div>
+            {error && step !== 1 && <div className="form-error wizard-error">{error}</div>}
+            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={closeCreate}>Cancel</button>{step > 1 && <button type="button" className="secondary-button" onClick={() => setStep(step - 1)}>Previous</button>}{step < 3 ? <button type="button" className="orange-button" onClick={() => !name.trim() ? setError('Bucket name is required.') : setStep(step + 1)}>Next</button> : <button type="submit" className="orange-button">Create bucket</button>}</div>
           </form>
         </div>
       )}
@@ -342,6 +366,7 @@ function BucketDetailsPage() {
     buckets, uploadObject, deleteObject, createFolder, updateBucket, logActivity,
     setLifecycleRules, setObjectStorageClass, setReplicationRules, runReplication,
     advanceSimulatedTime, restoreObjectVersion, deleteObjectVersion, recordGetRequest,
+    createAccessPoint, deleteAccessPoint,
   } = useS3SimulatorStore()
   const navigate = useNavigate()
   const bucket = buckets.find((item) => item.name === bucketName)
@@ -368,6 +393,9 @@ function BucketDetailsPage() {
   const [targetClass, setTargetClass] = useState<Bucket['lifecycleRules'][number]['targetClass']>('STANDARD_IA')
   const [replicationName, setReplicationName] = useState('')
   const [replicationDestination, setReplicationDestination] = useState('')
+  const [accessPointOpen, setAccessPointOpen] = useState(false)
+  const [accessPointName, setAccessPointName] = useState('')
+  const [accessPointNetwork, setAccessPointNetwork] = useState<'Internet' | 'VPC'>('Internet')
 
   if (!bucket) return <Navigate to="/console/buckets" replace />
 
@@ -419,12 +447,48 @@ function BucketDetailsPage() {
   })()
 
   const selectableEntries = entries.filter((entry) => !entry.isFolder && entry.object)
+  const selectedObject = selected.length === 1 ? bucket.objects.find((object) => object.key === selected[0]) : undefined
   const propertiesObject = bucket.objects.find((object) => object.key === propertiesKey)
 
   const openFolder = (folderKey: string) => {
     setPrefix(folderKey)
     setSelected([])
     setSearch('')
+  }
+
+  const openUpload = () => {
+    setUploadFile(null)
+    setUploadKey('')
+    setProgress(0)
+    setUploadOpen(true)
+  }
+
+  const closeUpload = () => {
+    setUploadOpen(false)
+    setUploadFile(null)
+    setUploadKey('')
+    setProgress(0)
+  }
+
+  const openFolderModal = () => {
+    setFolderName('')
+    setFolderOpen(true)
+  }
+
+  const closeFolderModal = () => {
+    setFolderOpen(false)
+    setFolderName('')
+  }
+
+  const openAccessPointModal = () => {
+    setAccessPointName('')
+    setAccessPointNetwork('Internet')
+    setAccessPointOpen(true)
+  }
+
+  const closeAccessPointModal = () => {
+    setAccessPointOpen(false)
+    setAccessPointName('')
   }
 
   const upload = async (event: FormEvent) => {
@@ -438,10 +502,7 @@ function BucketDetailsPage() {
       await uploadObject(bucket.name, key, uploadFile.size, uploadFile.type || 'application/octet-stream', uploadFile)
       setProgress(100)
       window.setTimeout(() => {
-        setUploadOpen(false)
-        setProgress(0)
-        setUploadFile(null)
-        setUploadKey('')
+        closeUpload()
       }, 250)
     } catch {
       window.alert('The file could not be stored in this browser.')
@@ -464,19 +525,29 @@ function BucketDetailsPage() {
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = key.split('/').pop() ?? key
+    document.body.appendChild(anchor)
     anchor.click()
-    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   const deleteSelected = async () => {
     if (!selected.length) return
     if (!window.confirm(`Permanently delete ${selected.length} selected object(s)?`)) return
-    await Promise.all(selected.map(async (key) => {
-      const object = bucket.objects.find((item) => item.key === key)
-      if (object?.deleteMarker) await deleteObjectVersion(bucket.name, key, object.versionId)
-      else await deleteObject(bucket.name, key)
-    }))
-    setSelected([])
+    try {
+      await Promise.all(selected.map(async (key) => {
+        const object = bucket.objects.find((item) => item.key === key)
+        if (object?.deleteMarker) await deleteObjectVersion(bucket.name, key, object.versionId)
+        else await deleteObject(bucket.name, key)
+      }))
+      setSelected([])
+    } catch {
+      window.alert('Some objects could not be deleted. Please try again.')
+    }
+  }
+
+  const runObjectVersionAction = (action: Promise<void>) => {
+    void action.catch(() => window.alert('The version action could not be completed. Please try again.'))
   }
 
   return (
@@ -491,6 +562,7 @@ function BucketDetailsPage() {
               setPolicyText(bucket.policy ?? '')
               setCorsText(bucket.cors ?? '')
               setPolicyError('')
+              setCorsError('')
             }
           }}>{item}</button>
         ))}
@@ -499,17 +571,16 @@ function BucketDetailsPage() {
         {tab === 'Objects' ? (
           <>
             <div className="table-toolbar">
-              <div className="resource-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find objects by prefix" /></div>
+              <div className="resource-search"><Search size={15} /><input value={search} onChange={(event) => { setSearch(event.target.value); setSelected([]) }} placeholder="Find objects by prefix" /></div>
               <div className="toolbar-actions">
                 <button disabled={selected.length !== 1} onClick={() => selected[0] && void navigator.clipboard.writeText(`s3://${bucket.name}/${selected[0]}`)}>Copy S3 URI</button>
-                <button disabled={selected.length !== 1} onClick={() => selected[0] && void download(selected[0])}>Download</button>
-                <button disabled={!selected.length} onClick={() => void deleteSelected()}>Delete</button>
+                <button disabled={selected.length !== 1 || Boolean(selectedObject?.deleteMarker)} onClick={() => selected[0] && void download(selected[0])}>Download</button>                <button disabled={!selected.length} onClick={() => void deleteSelected()}>Delete</button>
                 <button className={showVersions ? 'active' : ''} onClick={() => {
                   setShowVersions((value) => !value)
                   setSelected([])
                 }}>{showVersions ? 'Hide versions' : 'Show versions'}</button>
-                <button onClick={() => setFolderOpen(true)}>Create folder</button>
-                <button className="orange-button" onClick={() => setUploadOpen(true)}><Upload size={15} />Upload</button>
+                <button onClick={openFolderModal}>Create folder</button>
+                <button className="orange-button" onClick={openUpload}><Upload size={15} />Upload</button>
               </div>
             </div>
             <div className="object-path"><button onClick={() => { setPrefix(''); setSearch(''); setSelected([]) }}>{bucket.name}</button>{prefix && <><b>/</b><strong>{prefix}</strong></>}</div>
@@ -636,14 +707,15 @@ function BucketDetailsPage() {
                   const cors = JSON.parse(corsText)
                   if (!Array.isArray(cors)) throw new Error('CORS configuration must be a JSON array.')
                   updateBucket(bucket.name, { cors: corsText })
-                  setPolicyError('')
+                  setCorsError('')
                   logActivity('PutBucketCors', `arn:aws:s3:::${bucket.name}`, 'Success')
                 } catch (error) {
-                  setPolicyError(error instanceof Error ? error.message : 'Enter valid JSON.')
+                  setCorsError(error instanceof Error ? error.message : 'Enter valid JSON.')
                   logActivity('PutBucketCors', `arn:aws:s3:::${bucket.name}`, 'Error')
                 }
               }}>Save</button></div>
               <CodeMirror value={corsText} height="220px" extensions={[json()]} onChange={setCorsText} basicSetup={{ lineNumbers: true, foldGutter: true }} />
+              {corsError && <div className="form-error">{corsError}</div>}
             </section>
             <section className="configuration-section">
               <h2>Object Ownership</h2>
@@ -680,7 +752,9 @@ function BucketDetailsPage() {
               ) : <p className="empty-text">No lifecycle rules configured.</p>}
             </section>
             <section className="configuration-section">
-              <h2>Replication</h2>
+              <div className="section-heading"><div><h2>Replication</h2><p>Copy objects from this bucket to another bucket in the simulator.</p></div><button disabled={!bucket.replicationRules.length} onClick={() => {
+                void runReplication(bucket.name).catch(() => window.alert('Replication could not be completed. Please try again.'))
+              }}>Run replication</button></div>
               <div className="lifecycle-form">
                 <label>Rule name<input value={replicationName} onChange={(event) => setReplicationName(event.target.value)} placeholder="Replicate archive" /></label>
                 <label>Destination bucket<select value={replicationDestination} onChange={(event) => setReplicationDestination(event.target.value)}><option value="">Choose destination</option>{buckets.filter((item) => item.name !== bucket.name).map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}</select></label>
@@ -691,12 +765,12 @@ function BucketDetailsPage() {
                   destination: replicationDestination,
                   mode: bucket.region === 'us-east-1' ? 'CRR' : 'SRR',
                   prefix: '',
-                  replicateDeleteMarkers: true,
+                  replicateDeleteMarkers: false,
                   statusLabel: 'Pending',
                 }])}>Create rule</button>
               </div>
               {bucket.replicationRules.map((rule) => (
-                <div className="lifecycle-row" key={rule.id}><div><strong>{rule.name}</strong><span>{rule.mode} · {rule.destination} · {rule.statusLabel}</span></div><button onClick={() => void runReplication(bucket.name)}>Run replication</button></div>
+                <div className="lifecycle-row" key={rule.id}><div><strong>{rule.name}</strong><span>{rule.mode} · {rule.destination} · {rule.statusLabel}</span></div><button onClick={() => setReplicationRules(bucket.name, bucket.replicationRules.filter((item) => item.id !== rule.id))}>Delete</button></div>
               ))}
             </section>
             <section className="configuration-section">
@@ -750,6 +824,18 @@ function BucketDetailsPage() {
               </ResponsiveContainer>
             </section>
           </div>
+        ) : tab === 'Access Points' ? (
+          <div className="configuration-layout">
+            <section className="configuration-section">
+              <div className="section-heading"><div><h2>Access Points</h2><p>Access points simplify data access by providing unique hostnames for applications and users.</p></div><button className="orange-button" onClick={openAccessPointModal}>Create access point</button>
+              </div>
+              {bucket.accessPoints.length ? (
+                <div className="lifecycle-table">{bucket.accessPoints.map((ap) => (
+                  <div className="lifecycle-row" key={ap.id}><div><strong>{ap.name}</strong><span>{ap.network} · {ap.status} · arn:aws:s3::{bucket.name}:accesspoint/{ap.name}</span></div><button onClick={() => { deleteAccessPoint(bucket.name, ap.id) }}>Delete</button></div>
+                ))}</div>
+              ) : <p className="empty-text">No access points configured.</p>}
+            </section>
+          </div>
         ) : (
           <div className="properties-grid">
             <article><h3>Region</h3><p>{bucket.region}</p></article>
@@ -762,9 +848,9 @@ function BucketDetailsPage() {
         )}
       </section>
       {uploadOpen && (
-        <div className="modal-backdrop" onMouseDown={() => setUploadOpen(false)}>
+        <div className="modal-backdrop" onMouseDown={closeUpload}>
           <form className="upload-modal" onSubmit={upload} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="wizard-header"><div><span>Upload</span><h2>Add files</h2></div><button type="button" onClick={() => setUploadOpen(false)}><X size={20} /></button></div>
+            <div className="wizard-header"><div><span>Upload</span><h2>Add files</h2></div><button type="button" onClick={closeUpload}><X size={20} /></button></div>
             <div className="wizard-body upload-body">
               <div className="drop-zone" onClick={() => fileInput.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files[0]; if (file) { setUploadFile(file); setUploadKey(file.name) } }}>
                 <input ref={fileInput} type="file" hidden onChange={(event) => { const file = event.target.files?.[0] ?? null; setUploadFile(file); if (file) setUploadKey(file.name) }} />
@@ -773,16 +859,28 @@ function BucketDetailsPage() {
               <label>Destination key<input value={uploadKey} onChange={(event) => setUploadKey(event.target.value)} placeholder="folder/file-name.txt" /></label>
               {progress > 0 && <div className="progress-track"><i style={{ width: `${progress}%` }} /></div>}
             </div>
-            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={() => setUploadOpen(false)}>Cancel</button><button type="submit" className="orange-button" disabled={!uploadFile || progress > 0}>Upload</button></div>
+            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={closeUpload}>Cancel</button><button type="submit" className="orange-button" disabled={!uploadFile || progress > 0}>Upload</button></div>
           </form>
         </div>
       )}
       {folderOpen && (
-        <div className="modal-backdrop" onMouseDown={() => setFolderOpen(false)}>
-          <form className="upload-modal" onSubmit={(event) => { event.preventDefault(); createFolder(bucket.name, prefix + folderName); setFolderOpen(false); setFolderName('') }} onMouseDown={(event) => event.stopPropagation()}>
-            <div className="wizard-header"><div><span>Folder</span><h2>Create folder</h2></div><button type="button" onClick={() => setFolderOpen(false)}><X size={20} /></button></div>
+        <div className="modal-backdrop" onMouseDown={closeFolderModal}>
+          <form className="upload-modal" onSubmit={(event) => { event.preventDefault(); createFolder(bucket.name, prefix + folderName); closeFolderModal() }} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="wizard-header"><div><span>Folder</span><h2>Create folder</h2></div><button type="button" onClick={closeFolderModal}><X size={20} /></button></div>
             <div className="wizard-body"><label>Folder name<input value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="images" autoFocus /></label></div>
-            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={() => setFolderOpen(false)}>Cancel</button><button type="submit" className="orange-button" disabled={!folderName.trim()}>Create folder</button></div>
+            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={closeFolderModal}>Cancel</button><button type="submit" className="orange-button" disabled={!folderName.trim()}>Create folder</button></div>
+          </form>
+        </div>
+      )}
+      {accessPointOpen && (
+        <div className="modal-backdrop" onMouseDown={closeAccessPointModal}>
+          <form className="upload-modal" onSubmit={(event) => { event.preventDefault(); if (!accessPointName.trim()) return; createAccessPoint(bucket.name, accessPointName, accessPointNetwork); closeAccessPointModal() }} onMouseDown={(event) => event.stopPropagation()}>
+            <div className="wizard-header"><div><span>Access Point</span><h2>Create access point</h2></div><button type="button" onClick={closeAccessPointModal}><X size={20} /></button></div>
+            <div className="wizard-body">
+              <label>Access point name<input value={accessPointName} onChange={(event) => setAccessPointName(event.target.value)} placeholder="my-access-point" autoFocus /><small>Unique within the bucket.</small></label>
+              <label>Network origin<select value={accessPointNetwork} onChange={(event) => setAccessPointNetwork(event.target.value as 'Internet' | 'VPC') }><option value="Internet">Internet</option><option value="VPC">VPC</option></select></label>
+            </div>
+            <div className="wizard-actions"><button type="button" className="secondary-button" onClick={closeAccessPointModal}>Cancel</button><button type="submit" className="orange-button" disabled={!accessPointName.trim()}>Create access point</button></div>
           </form>
         </div>
       )}
@@ -795,14 +893,14 @@ function BucketDetailsPage() {
             <div className="lifecycle-table">
               <div className="lifecycle-row">
                 <div><strong>Current version</strong><span>{propertiesObject.versionId}{propertiesObject.deleteMarker ? ' · delete marker' : ''} · {formatBytes(propertiesObject.size)} · {new Date(propertiesObject.createdAt).toLocaleString()}</span></div>
-                <button onClick={() => void deleteObjectVersion(bucket.name, propertiesObject.key, propertiesObject.versionId)}>Delete</button>
+                <button onClick={() => runObjectVersionAction(deleteObjectVersion(bucket.name, propertiesObject.key, propertiesObject.versionId))}>Delete</button>
               </div>
               {(propertiesObject.versions ?? []).map((version) => (
                 <div className="lifecycle-row" key={version.versionId}>
                   <div><strong>{version.deleteMarker ? 'Delete marker' : version.versionId}</strong><span>{formatBytes(version.size)} · {new Date(version.createdAt).toLocaleString()}</span></div>
                   <div className="version-actions">
-                    {!version.deleteMarker && <button onClick={() => void restoreObjectVersion(bucket.name, propertiesObject.key, version.versionId)}>Restore</button>}
-                    <button onClick={() => void deleteObjectVersion(bucket.name, propertiesObject.key, version.versionId)}>Delete</button>
+                    {!version.deleteMarker && <button onClick={() => runObjectVersionAction(restoreObjectVersion(bucket.name, propertiesObject.key, version.versionId))}>Restore</button>}
+                    <button onClick={() => runObjectVersionAction(deleteObjectVersion(bucket.name, propertiesObject.key, version.versionId))}>Delete</button>
                   </div>
                 </div>
               ))}
@@ -1024,8 +1122,10 @@ function ExportImportPage() {
     const anchor = document.createElement('a')
     anchor.href = url
     anchor.download = 's3-simulator-state.json'
+    document.body.appendChild(anchor)
     anchor.click()
-    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000)
     setMessage('Simulator state exported.')
   }
 
@@ -1037,9 +1137,9 @@ function ExportImportPage() {
         region?: string
       }
       if (!Array.isArray(parsed.buckets)) throw new Error('Imported JSON must contain a buckets array.')
-      const buckets = parsed.buckets
+      const buckets = [...new Map(parsed.buckets
         .filter((bucket) => bucket && typeof bucket.name === 'string' && bucket.name.length > 0)
-        .map((bucket) => normalizeBucket(bucket))
+        .map((bucket) => [bucket.name, normalizeBucket(bucket)])).values()]
       if (!buckets.length) throw new Error('Imported JSON does not contain any valid buckets.')
       const activity = Array.isArray(parsed.activity)
         ? parsed.activity.map((event, index) => ({
@@ -1074,6 +1174,60 @@ function ExportImportPage() {
   )
 }
 
+function AccessPointsPage() {
+  const { buckets, createAccessPoint, deleteAccessPoint } = useS3SimulatorStore()
+  const [apName, setApName] = useState('')
+  const [apNetwork, setApNetwork] = useState<'Internet' | 'VPC'>('Internet')
+  const [selectedBucket, setSelectedBucket] = useState(buckets[0]?.name ?? '')
+  const bucket = buckets.find((item) => item.name === selectedBucket)
+
+  const changeBucket = (nextName: string) => setSelectedBucket(nextName)
+
+  const createAP = () => {
+    if (!apName.trim() || !bucket) return
+    createAccessPoint(bucket.name, apName, apNetwork)
+    setApName('')
+  }
+
+  return (
+    <main className="console-main">
+      <div className="breadcrumbs"><span>Amazon S3</span><b>›</b><strong>Access Points</strong></div>
+      <div className="page-title"><div><h1>Access Points</h1><p>Manage access points for simplifying data access across your buckets.</p></div></div>
+      <section className="configuration-layout"><div className="configuration-content">
+        <section className="configuration-section">
+          <div className="pricing-grid">
+            <label>Bucket<select value={selectedBucket} onChange={(event) => changeBucket(event.target.value)}>{buckets.map((item) => <option key={item.name}>{item.name}</option>)}</select></label>
+            <label>Access point name<input value={apName} onChange={(event) => setApName(event.target.value)} placeholder="my-access-point" /></label>
+            <label>Network origin<select value={apNetwork} onChange={(event) => setApNetwork(event.target.value as 'Internet' | 'VPC') }><option value="Internet">Internet</option><option value="VPC">VPC</option></select></label>
+          </div>
+          <button className="orange-button" disabled={!apName.trim() || !bucket} onClick={createAP}>Create access point</button>
+        </section>
+        <section className="configuration-section">
+          <h2>Access points by bucket</h2>
+          {buckets.length ? (
+            <table className="console-table">
+              <thead><tr><th>Bucket</th><th>Name</th><th>Network</th><th>Status</th><th>ARN</th><th></th></tr></thead>
+              <tbody>
+                {buckets.flatMap((b) => b.accessPoints.map((ap) => (
+                  <tr key={ap.id}>
+                    <td>{b.name}</td>
+                    <td>{ap.name}</td>
+                    <td>{ap.network}</td>
+                    <td><span className="status-badge">{ap.status}</span></td>
+                    <td>arn:aws:s3:::{b.name}:accesspoint/{ap.name}</td>
+                    <td><button onClick={() => deleteAccessPoint(b.name, ap.id)}>Delete</button></td>
+                  </tr>
+                )))}
+              </tbody>
+            </table>
+          ) : <div className="empty-state"><Box size={38} /><h2>No buckets</h2><p>Create a bucket to get started.</p></div>}
+          {!buckets.some((b) => b.accessPoints.length) && buckets.length && <p className="empty-text">No access points configured across buckets.</p>}
+        </section>
+      </div></section>
+    </main>
+  )
+}
+
 function ConsoleLayout() {
   return (
     <div className="console-shell">
@@ -1089,6 +1243,7 @@ function ConsoleLayout() {
         <Route path="/iam" element={<IamPage />} />
         <Route path="/tutorials" element={<TutorialsPage />} />
         <Route path="/state" element={<ExportImportPage />} />
+        <Route path="/access-points" element={<AccessPointsPage />} />
       </Routes>
     </div>
   )
