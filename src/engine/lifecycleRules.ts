@@ -135,6 +135,11 @@ export function validateLifecycleRule(
   }
 
   const transitions = resolvedTransitions(rule)
+  const enteredTransitions = Array.isArray(rule.transitions)
+    ? rule.transitions
+    : rule.targetClass && typeof rule.transitionDays === 'number'
+      ? [{ days: rule.transitionDays, storageClass: rule.targetClass }]
+      : []
   if (
     !transitions.length &&
     !expiryDay(rule) &&
@@ -199,13 +204,13 @@ export function validateLifecycleRule(
     }
   }
 
-  for (let index = 1; index < transitions.length; index += 1) {
-    if (transitions[index].days <= transitions[index - 1].days) {
+  for (let index = 1; index < enteredTransitions.length; index += 1) {
+    if (enteredTransitions[index].days <= enteredTransitions[index - 1].days) {
       issues.push({
         ruleId,
         severity: 'error',
         code: 'InvalidArgument',
-        message: 'Transitions must move forward in time. Order transitions from the cheapest early class to the deepest archive class.',
+        message: `Transition ${index + 1} (day ${enteredTransitions[index].days}) must be later than transition ${index} (day ${enteredTransitions[index - 1].days}).`,
       })
       break
     }

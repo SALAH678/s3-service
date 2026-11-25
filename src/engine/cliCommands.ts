@@ -130,10 +130,10 @@ export function listObjectsV2Command(bucket: Bucket, prefix = ''): CliPayload {
   }
 }
 
-export function listObjectVersionsCommand(bucket: Bucket): CliPayload {
+export function listObjectVersionsCommand(bucket: Bucket, prefix?: string): CliPayload {
   const versions: unknown[] = []
   const deleteMarkers: unknown[] = []
-  for (const object of bucket.objects) {
+  for (const object of bucket.objects.filter((candidate) => !prefix || candidate.key.startsWith(prefix))) {
     for (const entry of buildVersionTimeline(object)) {
       if (entry.deleteMarker) {
         deleteMarkers.push({
@@ -158,11 +158,12 @@ export function listObjectVersionsCommand(bucket: Bucket): CliPayload {
     }
   }
   return {
-    command: `aws s3api list-object-versions --bucket ${shellQuote(bucket.name)}`,
+    command: `aws s3api list-object-versions --bucket ${shellQuote(bucket.name)}${prefix ? ` --prefix ${shellQuote(prefix)}` : ''}`,
     json: json({
       Versions: versions,
       DeleteMarkers: deleteMarkers,
       Name: bucket.name,
+      Prefix: prefix || undefined,
       MaxKeys: 1000,
       IsTruncated: false,
       ResponseMetadata: responseMetadata(),

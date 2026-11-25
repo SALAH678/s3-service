@@ -388,6 +388,7 @@ type SimulatorState = {
   reset: () => void;
   logActivity: (action: string, resource: string, status?: Activity["status"]) => void;
   addCliCommand: (command: string, jsonResponse: string) => void;
+  recordListObjectVersions: (bucketName: string, prefix: string) => void;
   clearCliHistory: () => void;
   recordCostSnapshot: (day: number) => void;
   startScenario: (scenarioId: string) => void;
@@ -2184,6 +2185,12 @@ export const useS3SimulatorStore = create<SimulatorState>()(
             ...state.cliHistory,
           ].slice(0, 200),
         })),
+      recordListObjectVersions: (bucketName, prefix) => {
+        const bucket = get().buckets.find((item) => item.name === bucketName);
+        if (!bucket) return;
+        const payload = cli.listObjectVersionsCommand(bucket, prefix);
+        get().addCliCommand(payload.command, payload.json);
+      },
       clearCliHistory: () => set({ cliHistory: [] }),
       recordCostSnapshot: (day) => {
         const buckets = get().buckets;

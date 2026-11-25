@@ -254,7 +254,7 @@ export function ObjectBrowser({
                         {row.name}
                       </button>
                     ) : (
-                      <button type="button" className="learn-key" onClick={() => onSelectKey(row.key)}>
+                      <button type="button" className="learn-key">
                         {row.name}
                         {row.deleteMarker && <span className="learn-badge learn-badge-warning">Delete marker</span>}
                         {row.isCurrent && !row.deleteMarker && !showVersions && (

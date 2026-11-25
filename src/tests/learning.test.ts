@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { estimateEarlyDeletionCharge, estimateMonthlyStorageCost } from "../engine/storageClasses";
 import {
   validateLifecycleRule,
@@ -12,6 +12,19 @@ import {
   versionIdForNewObject,
 } from "../engine/versioning";
 import { emptyCostByClass, monthlyCostByClass, sumCostByClass } from "../engine/cost";
+import { useS3SimulatorStore } from "../store/s3SimulatorStore";
+
+vi.mock("../storage/simulationDb", () => ({
+  clearBucketBlobs: vi.fn(() => Promise.resolve()),
+  clearObjectBlobs: vi.fn(() => Promise.resolve()),
+  deleteAllObjectVersionBlobs: vi.fn(() => Promise.resolve()),
+  deleteObjectBlob: vi.fn(() => Promise.resolve()),
+  deleteObjectVersionBlob: vi.fn(() => Promise.resolve()),
+  loadObjectBlob: vi.fn(() => Promise.resolve(undefined)),
+  loadObjectVersionBlob: vi.fn(() => Promise.resolve(undefined)),
+  saveObjectBlob: vi.fn(() => Promise.resolve()),
+  saveObjectVersionBlob: vi.fn(() => Promise.resolve()),
+}));
 
 describe("versioning state machine", () => {
   it("allows Unversioned -> Enabled -> Suspended", () => {
@@ -77,13 +90,120 @@ describe("version timeline", () => {
   });
 });
 
+describe("CLI version listing history", () => {
+  it("records one listing with the selected bucket and key", () => {
+    useS3SimulatorStore.getState().reset();
+    useS3SimulatorStore.getState().recordListObjectVersions("cloud-club-demo", "images/event.jpg");
+
+    const history = useS3SimulatorStore.getState().cliHistory;
+    expect(history).toHaveLength(1);
+    expect(history[0].command).toBe(
+      "aws s3api list-object-versions --bucket cloud-club-demo --prefix images/event.jpg",
+    );
+    const response = JSON.parse(history[0].jsonResponse) as {
+      Name: string;
+      Prefix: string;
+      Versions: Array<{ Key: string }>;
+      DeleteMarkers: Array<{ Key: string }>;
+    };
+    expect(response.Name).toBe("cloud-club-demo");
+    expect(response.Prefix).toBe("images/event.jpg");
+    expect(response.Versions).toHaveLength(3);
+    expect([...response.Versions, ...response.DeleteMarkers].every((version) => version.Key === "images/event.jpg")).toBe(true);
+  });
+
+  it("does not add a listing without a selection", () => {
+    useS3SimulatorStore.getState().reset();
+
+    expect(useS3SimulatorStore.getState().cliHistory).toEqual([]);
+  });
+
+  it("clears the listing when the simulator is reset", () => {
+    useS3SimulatorStore.getState().recordListObjectVersions("cloud-club-demo", "images/event.jpg");
+    expect(useS3SimulatorStore.getState().cliHistory).toHaveLength(1);
+
+    useS3SimulatorStore.getState().reset();
+
+    expect(useS3SimulatorStore.getState().cliHistory).toEqual([]);
+  });
+});
+
 describe("lifecycle validation", () => {
   it("rejects Standard-IA before 30 days", () => {
     const issues = validateLifecycleRule({
       name: "too-fast",
-      transitions: [{ days: 10, storageClass: "STANDARD_IA" }],
+      transitions: [
+        { days: 10, storageClass: "STANDARD_IA" },
+        { days: 90, storageClass: "GLACIER" },
+      ],
     });
-    expect(issues.some((issue) => issue.severity === "error" && issue.code === "InvalidArgument")).toBe(true);
+    expect(issues).toEqual([
+      expect.objectContaining({
+        severity: "error",
+        code: "InvalidArgument",
+        message: expect.stringContaining("Standard-IA requires at least 30 days"),
+      }),
+    ]);
+  });
+
+  it("rejects transitions entered out of order and names both transitions", () => {
+    const issues = validateLifecycleRule({
+      name: "out-of-order",
+      transitions: [
+        { days: 90, storageClass: "STANDARD_IA" },
+        { days: 30, storageClass: "GLACIER" },
+      ],
+    });
+
+    expect(issues.some(
+      (issue) =>
+        issue.severity === "error" &&
+        issue.code === "InvalidArgument" &&
+        issue.message === "Transition 2 (day 30) must be later than transition 1 (day 90).",
+    )).toBe(true);
+  });
+
+  it("rejects transitions entered on the same day", () => {
+    const issues = validateLifecycleRule({
+      name: "same-day",
+      transitions: [
+        { days: 30, storageClass: "STANDARD_IA" },
+        { days: 30, storageClass: "GLACIER" },
+      ],
+    });
+
+    expect(issues.some(
+      (issue) =>
+        issue.severity === "error" &&
+        issue.code === "InvalidArgument" &&
+        issue.message === "Transition 2 (day 30) must be later than transition 1 (day 30).",
+    )).toBe(true);
+  });
+
+  it("accepts transitions entered in forward order", () => {
+    const issues = validateLifecycleRule({
+      name: "forward-order",
+      transitions: [
+        { days: 30, storageClass: "STANDARD_IA" },
+        { days: 90, storageClass: "GLACIER" },
+      ],
+    });
+
+    expect(issues.filter((issue) => issue.severity === "error")).toEqual([]);
+  });
+
+  it("accepts the plan lifecycle scenario", () => {
+    const issues = validateLifecycleRule({
+      name: "archive-images",
+      prefix: "images/",
+      transitions: [
+        { days: 30, storageClass: "STANDARD_IA" },
+        { days: 90, storageClass: "GLACIER" },
+      ],
+      expirationDays: 365,
+    });
+
+    expect(issues.filter((issue) => issue.severity === "error")).toEqual([]);
   });
 
   it("requires expiration after the last transition", () => {
@@ -92,7 +212,7 @@ describe("lifecycle validation", () => {
       transitions: [{ days: 30, storageClass: "STANDARD_IA" }],
       expirationDays: 30,
     });
-    expect(issues.some((issue) => issue.message.includes("Expiration"))).toBe(true);
+    expect(issues.some((issue) => issue.severity === "error" && issue.message.includes("Expiration"))).toBe(true);
   });
 
   it("warns when Glacier comes before Standard-IA", () => {
