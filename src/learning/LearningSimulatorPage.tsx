@@ -20,6 +20,7 @@ export default function LearningSimulatorPage() {
   const {
     buckets,
     clockDay,
+    recordListObjectVersions,
     reset,
     exportSimulatorState,
     importSimulatorState,
@@ -173,7 +174,10 @@ export default function LearningSimulatorPage() {
                 search={search}
                 onSearchChange={setSearch}
                 selectedKey={selectedKey}
-                onSelectKey={setSelectedKey}
+                onSelectKey={(key) => {
+                  setSelectedKey(key);
+                  if (key) recordListObjectVersions(bucket.name, key);
+                }}
                 onFlash={onFlash}
               />
               {selectedObject && (

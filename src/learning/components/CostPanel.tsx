@@ -4,6 +4,7 @@ import {
   LEARNING_STORAGE_CLASSES,
   STORAGE_CLASS_COLORS,
   classShortLabel,
+  formatEarlyDeletionCharge,
   formatUsd,
 } from "../../engine/storageClasses";
 import { storedCostEntries, formatClock } from "../model";
@@ -36,7 +37,7 @@ export function CostMeter() {
           </article>
           <article>
             <span>Early deletion</span>
-            <strong>{formatUsd(earlyDeletionTotal, 4)}</strong>
+            <strong>{formatEarlyDeletionCharge(earlyDeletionTotal)}</strong>
           </article>
           <article>
             <span>Current monthly rate</span>

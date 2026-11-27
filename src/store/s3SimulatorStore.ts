@@ -31,6 +31,7 @@ import {
   type LifecycleIssue,
 } from "../engine/lifecycleRules";
 import * as cli from "../engine/cliCommands";
+import { formatEarlyDeletionCharge } from "../engine/storageClasses";
 import {
   clearBucketBlobs,
   clearObjectBlobs,
@@ -388,6 +389,7 @@ type SimulatorState = {
   reset: () => void;
   logActivity: (action: string, resource: string, status?: Activity["status"]) => void;
   addCliCommand: (command: string, jsonResponse: string) => void;
+  recordListObjectVersions: (bucketName: string, prefix: string) => void;
   clearCliHistory: () => void;
   recordCostSnapshot: (day: number) => void;
   startScenario: (scenarioId: string) => void;
@@ -519,7 +521,7 @@ function applyLifecycleDay(
               bucket: bucket.name,
               key: current.key,
               type: "penalty",
-              message: `${current.key}: early deletion charge $${penalty.toFixed(4)} for leaving ${current.storageClass} before its minimum duration`,
+              message: `${current.key}: early deletion charge ${formatEarlyDeletionCharge(penalty)} for leaving ${current.storageClass} before its minimum duration`,
             });
           }
           events.push({
@@ -1904,7 +1906,7 @@ export const useS3SimulatorStore = create<SimulatorState>()(
         return {
           warning:
             penalty > 0
-              ? `Early deletion charge of $${penalty.toFixed(4)} applies because the object has not completed the minimum storage duration for ${object.storageClass}.`
+              ? `Early deletion charge of ${formatEarlyDeletionCharge(penalty)} applies because the object has not completed the minimum storage duration for ${object.storageClass}.`
               : null,
         };
       },
@@ -2184,6 +2186,12 @@ export const useS3SimulatorStore = create<SimulatorState>()(
             ...state.cliHistory,
           ].slice(0, 200),
         })),
+      recordListObjectVersions: (bucketName, prefix) => {
+        const bucket = get().buckets.find((item) => item.name === bucketName);
+        if (!bucket) return;
+        const payload = cli.listObjectVersionsCommand(bucket, prefix);
+        get().addCliCommand(payload.command, payload.json);
+      },
       clearCliHistory: () => set({ cliHistory: [] }),
       recordCostSnapshot: (day) => {
         const buckets = get().buckets;

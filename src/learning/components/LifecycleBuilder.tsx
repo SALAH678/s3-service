@@ -4,6 +4,8 @@ import {
   hasBlockingIssues,
   lifecycleMilestones,
   lifecycleSummary,
+  defaultTransitionDays,
+  minimumValidTransitionDay,
   resolvedNoncurrentTransitions,
   resolvedTransitions,
   validateLifecycleRule,
@@ -158,7 +160,16 @@ export function LifecycleBuilder({ bucket, onFlash }: { bucket: Bucket; onFlash:
 
   const updateTransition = (index: number, changes: Partial<TransitionDraft>) => {
     setTransitions((current) =>
-      current.map((transition, position) => (position === index ? { ...transition, ...changes } : transition)),
+      current.map((transition, position) => {
+        if (position !== index) return transition;
+        if (!changes.storageClass) return { ...transition, ...changes };
+        const previousDays = Number(current[position - 1]?.days) || 0;
+        const days = Math.max(
+          Number(transition.days) || 0,
+          minimumValidTransitionDay(previousDays, changes.storageClass),
+        );
+        return { ...transition, ...changes, days: String(days) };
+      }),
     );
   };
 
@@ -215,13 +226,24 @@ export function LifecycleBuilder({ bucket, onFlash }: { bucket: Bucket; onFlash:
           </label>
           <label className="learn-field">
             <span>Prefix filter</span>
+            <small>A prefix is the beginning of an object key, such as images/.</small>
             <input value={prefix} onChange={(event) => setPrefix(event.target.value)} placeholder="images/" />
           </label>
           <label className="learn-field">
             <span>Tag filter</span>
             <div className="learn-inline">
-              <input value={tagKey} onChange={(event) => setTagKey(event.target.value)} placeholder="Category" />
-              <input value={tagValue} onChange={(event) => setTagValue(event.target.value)} placeholder="Images" />
+              <input
+                value={tagKey}
+                onChange={(event) => setTagKey(event.target.value)}
+                placeholder="Category"
+                aria-label="Tag filter key"
+              />
+              <input
+                value={tagValue}
+                onChange={(event) => setTagValue(event.target.value)}
+                placeholder="Images"
+                aria-label="Tag filter value"
+              />
             </div>
           </label>
           <label className="learn-field">
@@ -256,7 +278,12 @@ export function LifecycleBuilder({ bucket, onFlash }: { bucket: Bucket; onFlash:
                 setTransitions((current) => [
                   ...current,
                   {
-                    days: String((Number(current[current.length - 1]?.days) || 30) + 30),
+                    days: String(
+                      defaultTransitionDays(
+                        Number(current[current.length - 1]?.days) || 0,
+                        "GLACIER",
+                      ),
+                    ),
                     storageClass: "GLACIER",
                   },
                 ])
