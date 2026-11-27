@@ -196,6 +196,11 @@ export function formatUsd(value: number, digits = 4): string {
   return `$${value.toFixed(2)}`
 }
 
+export function formatEarlyDeletionCharge(value: number): string {
+  if (value > 0 && value < 0.00005) return '< $0.0001'
+  return formatUsd(value, 4)
+}
+
 export function formatBytes(bytes: number, digits = 1): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']

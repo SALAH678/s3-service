@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { estimateEarlyDeletionCharge, estimateMonthlyStorageCost } from "../engine/storageClasses";
 import {
+  defaultTransitionDays,
+  minimumValidTransitionDay,
   validateLifecycleRule,
   validateLifecycleRules,
 } from "../engine/lifecycleRules";
@@ -13,6 +15,11 @@ import {
 } from "../engine/versioning";
 import { emptyCostByClass, monthlyCostByClass, sumCostByClass } from "../engine/cost";
 import { useS3SimulatorStore } from "../store/s3SimulatorStore";
+import {
+  LEARNING_STORAGE_CLASSES,
+  detailsFor,
+  formatEarlyDeletionCharge,
+} from "../engine/storageClasses";
 
 vi.mock("../storage/simulationDb", () => ({
   clearBucketBlobs: vi.fn(() => Promise.resolve()),
@@ -25,6 +32,23 @@ vi.mock("../storage/simulationDb", () => ({
   saveObjectBlob: vi.fn(() => Promise.resolve()),
   saveObjectVersionBlob: vi.fn(() => Promise.resolve()),
 }));
+
+describe("lifecycle transition defaults", () => {
+  it("uses a forward day that meets each storage class minimum", () => {
+    for (const storageClass of LEARNING_STORAGE_CLASSES) {
+      const defaultDay = defaultTransitionDays(30, storageClass);
+      expect(defaultDay).toBeGreaterThan(30);
+      expect(defaultDay).toBeGreaterThanOrEqual(detailsFor(storageClass).minStorageDays);
+      expect(minimumValidTransitionDay(30, storageClass)).toBeGreaterThan(30);
+      expect(minimumValidTransitionDay(30, storageClass)).toBeGreaterThanOrEqual(
+        detailsFor(storageClass).minStorageDays,
+      );
+    }
+
+    expect(defaultTransitionDays(30, "GLACIER")).toBe(90);
+    expect(defaultTransitionDays(90, "DEEP_ARCHIVE")).toBe(180);
+  });
+});
 
 describe("versioning state machine", () => {
   it("allows Unversioned -> Enabled -> Suspended", () => {
@@ -242,6 +266,12 @@ describe("lifecycle validation", () => {
 });
 
 describe("cost estimates", () => {
+  it("keeps non-zero early-deletion charges visible", () => {
+    expect(formatEarlyDeletionCharge(0.0000015)).toBe("< $0.0001");
+    expect(formatEarlyDeletionCharge(0.0001)).toBe("$0.0001");
+    expect(formatEarlyDeletionCharge(0)).toBe("$0.00");
+  });
+
   it("bills the minimum object size", () => {
     expect(estimateMonthlyStorageCost(1024, "STANDARD_IA")).toBeCloseTo(
       (128 * 1024 * 0.0125) / (1024 * 1024 * 1024),

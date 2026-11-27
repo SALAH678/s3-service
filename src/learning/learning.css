@@ -250,7 +250,7 @@
 
 .learn-field small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 400;
   line-height: 1.4;
 }
@@ -269,12 +269,13 @@
   font-weight: 400;
 }
 
-.learn-field input:focus,
-.learn-field select:focus,
-.learn-field textarea:focus,
-.learn-input:focus {
-  outline: 2px solid rgb(9 114 211 / 35%);
-  outline-offset: 1px;
+.learn-field input:focus-visible,
+.learn-field select:focus-visible,
+.learn-field textarea:focus-visible,
+.learn-input:focus-visible,
+.learn-main :where(button, input, select, textarea):focus-visible {
+  outline: 2px solid #0972d3;
+  outline-offset: 2px;
   border-color: var(--blue);
 }
 
@@ -455,7 +456,7 @@
   background: #eaf2fb;
   color: #084f92;
   padding: 1px 7px;
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 700;
   margin-left: 6px;
 }
@@ -669,6 +670,7 @@
 
 .learn-table {
   width: 100%;
+  min-width: 720px;
   border-collapse: collapse;
   font-size: 12px;
 }
@@ -707,7 +709,8 @@
   color: var(--blue);
   padding: 0;
   text-align: left;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow-wrap: normal;
 }
 
 .learn-version-id {
@@ -1360,7 +1363,7 @@
   flex: 1;
   margin: 0;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.45;
 }
 

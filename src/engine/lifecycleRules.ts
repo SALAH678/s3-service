@@ -51,6 +51,14 @@ export type LifecycleMilestone = {
   events: string[]
 }
 
+export function defaultTransitionDays(previousDays: number, storageClass: string): number {
+  return Math.max(previousDays + 30, detailsFor(storageClass).minStorageDays)
+}
+
+export function minimumValidTransitionDay(previousDays: number, storageClass: string): number {
+  return Math.max(previousDays + 1, detailsFor(storageClass).minStorageDays)
+}
+
 const MINIMUM_TRANSITION_DAYS: Record<string, number> = {
   STANDARD_IA: 30,
   ONE_ZONE_IA: 30,

@@ -245,6 +245,7 @@ export function ObjectBrowser({
                       <button
                         type="button"
                         className="learn-key"
+                        title={`Browse prefix ${row.name}/`}
                         onClick={() => {
                           onPrefixChange(row.key);
                           onSelectKey("");

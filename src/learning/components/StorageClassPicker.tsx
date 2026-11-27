@@ -6,6 +6,7 @@ import {
   estimateEarlyDeletionCharge,
   estimateMonthlyStorageCost,
   formatBytes,
+  formatEarlyDeletionCharge,
   formatUsd,
   isLearningStorageClass,
 } from "../../engine/storageClasses";
@@ -102,7 +103,7 @@ export function StorageClassPicker({
 
         {earlyDeletion > 0 && (
           <p className="learn-note learn-note-warning">
-            Early deletion charge: {formatUsd(earlyDeletion, 4)}. Leaving{" "}
+            Early deletion charge: {formatEarlyDeletionCharge(earlyDeletion)}. Leaving{" "}
             {classLabel(currentClass ?? selected)} before its minimum storage duration charges the remaining
             days.
           </p>
